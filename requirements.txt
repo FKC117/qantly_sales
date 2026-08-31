@@ -1,0 +1,40 @@
+# ============================================================
+# Scout - Qantly Sales Prospecting System
+# Django Backend Requirements
+# ============================================================
+
+# Django
+Django>=5.2,<5.3
+djangorestframework>=3.16,<3.17
+django-cors-headers>=4.7,<5.0
+
+# PostgreSQL
+psycopg[binary]>=3.2,<4.0
+
+# Redis / Background Tasks
+redis>=6.0,<7.0
+celery>=5.5,<6.0
+django-celery-beat>=2.8,<3.0
+django-celery-results>=2.6,<3.0
+
+# Agent Orchestration
+langgraph>=1.0,<2.0
+langchain-core>=1.0,<2.0
+
+# LLM Providers
+langchain-google-genai>=4.0,<5.0
+langchain-openai>=1.0,<2.0
+
+# Structured Data / Validation
+pydantic>=2.11,<3.0
+
+# HTTP / Web Retrieval
+httpx>=0.28,<1.0
+beautifulsoup4>=4.13,<5.0
+lxml>=6.0,<7.0
+
+# Environment Variables
+python-dotenv>=1.1,<2.0
+
+# Production Server
+gunicorn>=23.0,<24.0
