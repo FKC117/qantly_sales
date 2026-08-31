@@ -97,10 +97,16 @@ class TheMuseSearchProvider:
         self._public_jobs: list[DiscoveredJob] | None = None
 
     def search_jobs(self, query: str) -> list[DiscoveredJob]:
-        role_terms = [term.lower() for term in re.findall(r'"([^"]+)"', query)]
+        role_terms = [term.lower() for term in re.findall(r'role:"([^"]+)"', query)]
+        signal_terms = [term.lower() for term in re.findall(r'signal:"([^"]+)"', query)]
+        if not role_terms:  # Backward compatibility for manually supplied legacy queries.
+            role_terms = [term.lower() for term in re.findall(r'"([^"]+)"', query)]
+        location_terms = [term.lower() for term in re.findall(r'location:"([^"]+)"', query)]
         freshness_days = self._freshness_days(query)
         return [
-            job for job in self._fetch_public_jobs() if self._matches_query(job, role_terms, freshness_days)
+            job
+            for job in self._fetch_public_jobs()
+            if self._matches_query(job, role_terms, location_terms, freshness_days, signal_terms)
         ]
 
     def _fetch_public_jobs(self) -> list[DiscoveredJob]:
@@ -145,10 +151,20 @@ class TheMuseSearchProvider:
         return int(match.group(1)) if match else None
 
     @staticmethod
-    def _matches_query(job: DiscoveredJob, role_terms: list[str], freshness_days: int | None) -> bool:
+    def _matches_query(
+        job: DiscoveredJob,
+        role_terms: list[str],
+        location_terms: list[str],
+        freshness_days: int | None,
+        signal_terms: list[str] | None = None,
+    ) -> bool:
         searchable_text = f"{job.title} {job.description}".lower()
-        role_matches = not role_terms or role_terms[0] in searchable_text
+        role_matches = not role_terms or any(role in searchable_text for role in role_terms)
         if not role_matches:
+            return False
+        if signal_terms and not all(signal in searchable_text for signal in signal_terms):
+            return False
+        if location_terms and not any(location in job.location.lower() for location in location_terms):
             return False
         if freshness_days is None or job.posted_at is None:
             return True

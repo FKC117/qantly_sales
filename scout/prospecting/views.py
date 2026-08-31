@@ -1,4 +1,10 @@
+import json
+
+from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_POST
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
@@ -33,6 +39,40 @@ from .serializers import (
 from .services import approve_outreach, log_activity, reject_outreach, submit_outreach_for_approval
 
 
+@require_GET
+@ensure_csrf_cookie
+def csrf(request):
+    return JsonResponse({"detail": "CSRF cookie set."})
+
+
+@require_POST
+@csrf_protect
+def session_login(request):
+    try:
+        credentials = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+    user = authenticate(request, username=credentials.get("username", ""), password=credentials.get("password", ""))
+    if user is None:
+        return JsonResponse({"detail": "Invalid username or password."}, status=400)
+    login(request, user)
+    return JsonResponse({"username": user.get_username(), "is_staff": user.is_staff})
+
+
+@require_POST
+@csrf_protect
+def session_logout(request):
+    logout(request)
+    return JsonResponse({"detail": "Logged out."})
+
+
+@require_GET
+def session_user(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Not authenticated."}, status=401)
+    return JsonResponse({"username": request.user.get_username(), "is_staff": request.user.is_staff})
+
+
 @api_view(["GET"])
 def health_check(request):
     """Confirm that the prospecting API is installed and reachable."""
@@ -63,6 +103,23 @@ class SearchProfileViewSet(viewsets.ModelViewSet):
         profile.is_active = False
         profile.save(update_fields=["is_active", "updated_at"])
         return Response(self.get_serializer(profile).data)
+
+    @action(detail=True, methods=["post"], url_path="run-discovery", permission_classes=[IsAdminUser])
+    def run_discovery(self, request, pk=None):
+        """Queue one discovery run for this active profile."""
+        from .tasks import discover_jobs_task
+
+        profile = self.get_object()
+        if not profile.is_active:
+            return Response(
+                {"detail": "Activate this search profile before running discovery."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        task = discover_jobs_task.delay(profile.id)
+        return Response(
+            {"task_id": str(task.id), "profile": profile.name},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class SearchRoleViewSet(viewsets.ModelViewSet):

@@ -33,3 +33,5 @@ celerybeat.pid
 # Project planning docs - only if you DON'T want them in Git
 qantly_sales_prospecting_architecture.md
 PROSPECTING_BUILD_TASKS.md
+
+celery.txt

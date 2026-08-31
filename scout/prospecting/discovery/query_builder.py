@@ -8,16 +8,19 @@ def build_search_queries(search_profile: SearchProfile) -> list[str]:
     industries = list(search_profile.industries.filter(is_active=True).order_by("name"))
     locations = list(search_profile.locations.filter(is_active=True).order_by("country", "region"))
     queries = []
-    for index, role in enumerate(roles):
-        parts = [f'"{role.name}"']
-        if signals:
-            parts.append(f'"{signals[index % len(signals)].value}"')
-        if industries:
-            parts.append(industries[index % len(industries)].name)
-        if locations:
-            location = locations[index % len(locations)]
-            parts.append(location.region or location.country)
-        parts.append("jobs")
-        parts.append(f"past {search_profile.freshness_days} days")
-        queries.append(" ".join(parts))
+    for role in roles:
+        role_signals = signals or [None]
+        role_locations = locations or [None]
+        for signal in role_signals:
+            for location in role_locations:
+                parts = [f'role:"{role.name}"']
+                if signal:
+                    parts.append(f'signal:"{signal.value}"')
+                if industries:
+                    parts.append(industries[0].name)
+                if location:
+                    parts.append(f'location:"{location.region or location.country}"')
+                parts.append("jobs")
+                parts.append(f"past {search_profile.freshness_days} days")
+                queries.append(" ".join(parts))
     return list(dict.fromkeys(queries))

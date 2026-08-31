@@ -297,7 +297,7 @@ class SearchProfileTests(TestCase):
     def test_query_generation_reads_database_configuration(self):
         queries = build_search_queries(self.profile)
 
-        self.assertEqual(queries, ['"Data Analyst" "Python" Research Canada jobs past 7 days'])
+        self.assertEqual(queries, ['role:"Data Analyst" signal:"Python" Research location:"Canada" jobs past 7 days'])
 
     def test_initial_qantly_profile_is_seeded_by_migration(self):
         seeded_profile = SearchProfile.objects.get(name="Qantly Healthcare & Statistical Analytics")
@@ -382,4 +382,6 @@ class DiscoveryProviderTests(TestCase):
 
         self.assertEqual(job.source, "themuse")
         self.assertEqual(job.company_name, "Example Clinical")
-        self.assertTrue(provider._matches_query(job, ["clinical data analyst", "sas"], freshness_days=None))
+        self.assertTrue(
+            provider._matches_query(job, ["clinical data analyst", "sas"], ["remote"], freshness_days=None)
+        )

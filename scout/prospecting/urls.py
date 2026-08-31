@@ -20,5 +20,9 @@ router.register("events", views.ProspectEventViewSet, basename="event")
 
 urlpatterns = [
     path("health/", views.health_check, name="health"),
+    path("auth/csrf/", views.csrf, name="csrf"),
+    path("auth/login/", views.session_login, name="login"),
+    path("auth/logout/", views.session_logout, name="logout"),
+    path("auth/user/", views.session_user, name="user"),
     path("", include(router.urls)),
 ]
