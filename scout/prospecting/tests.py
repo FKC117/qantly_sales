@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from django.test import TestCase
 from django.test import override_settings
 from django.urls import reverse
+from unittest.mock import patch
 
 from .email_service import send_approved_outreach
 from .models import (
@@ -21,7 +22,13 @@ from .models import (
     SearchSignal,
 )
 from .services import approve_outreach
-from .discovery.providers import GreenhouseBoard, GreenhouseJobBoardProvider, PublicWebSearchProvider, greenhouse_boards_from_json
+from .discovery.providers import (
+    GreenhouseBoard,
+    GreenhouseJobBoardProvider,
+    PublicWebSearchProvider,
+    TheMuseSearchProvider,
+    greenhouse_boards_from_json,
+)
 from .discovery.query_builder import build_search_queries
 from .discovery.schemas import DiscoveredJob
 from .discovery.services import ingest_discovered_job, parse_job_details
@@ -296,6 +303,7 @@ class SearchProfileTests(TestCase):
         seeded_profile = SearchProfile.objects.get(name="Qantly Healthcare & Statistical Analytics")
 
         self.assertTrue(seeded_profile.roles.filter(name="Biostatistician", is_active=True).exists())
+        self.assertTrue(seeded_profile.roles.filter(name="Analytics Engineer", is_active=True).exists())
         self.assertTrue(seeded_profile.signals.filter(value="SAS", is_active=True).exists())
         self.assertTrue(seeded_profile.locations.filter(country="USA", is_active=True).exists())
 
@@ -325,7 +333,8 @@ class DiscoveryProviderTests(TestCase):
         self.assertEqual(provider.search_jobs('"Data Analyst" jobs'), [])
 
     def test_discovery_task_runs_when_greenhouse_is_not_configured(self):
-        result = discover_jobs_task.run()
+        with patch.dict("os.environ", {"SEARCH_PROVIDER": "", "SEARCH_API_KEY": ""}):
+            result = discover_jobs_task.run()
 
         self.assertEqual(result["greenhouse_boards"], 0)
         self.assertFalse(result["public_web_configured"])
@@ -335,6 +344,7 @@ class DiscoveryProviderTests(TestCase):
         self.assertEqual(detect_job_source("https://job-boards.greenhouse.io/acme/jobs/1"), "greenhouse")
         self.assertEqual(detect_job_source("https://jobs.lever.co/acme/1"), "lever")
         self.assertEqual(detect_job_source("https://jobs.ashbyhq.com/acme/1"), "ashby")
+        self.assertEqual(detect_job_source("https://www.themuse.com/jobs/acme/1"), "themuse")
         self.assertEqual(detect_job_source("https://careers.example.org/jobs/1"), "generic")
 
     def test_greenhouse_provider_normalizes_to_discovered_job(self):
@@ -355,3 +365,21 @@ class DiscoveryProviderTests(TestCase):
         self.assertEqual(job.source, "greenhouse")
         self.assertEqual(job.source_job_id, "101")
         self.assertEqual(job.company_name, "Example Research")
+
+    def test_the_muse_provider_normalizes_and_matches_public_jobs(self):
+        provider = TheMuseSearchProvider(max_pages=1)
+        job = provider.normalize_job(
+            {
+                "id": 202,
+                "name": "Clinical Data Analyst",
+                "contents": "Clinical research and SAS experience.",
+                "publication_date": "2026-08-31T00:00:00Z",
+                "company": {"name": "Example Clinical"},
+                "locations": [{"name": "Remote"}],
+                "refs": {"landing_page": "https://www.themuse.com/jobs/example/clinical-data-analyst"},
+            }
+        )
+
+        self.assertEqual(job.source, "themuse")
+        self.assertEqual(job.company_name, "Example Clinical")
+        self.assertTrue(provider._matches_query(job, ["clinical data analyst", "sas"], freshness_days=None))

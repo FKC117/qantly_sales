@@ -10,4 +10,6 @@ def detect_job_source(url: str) -> str:
         return "lever"
     if hostname == "jobs.ashbyhq.com":
         return "ashby"
+    if hostname in {"www.themuse.com", "themuse.com"}:
+        return "themuse"
     return "generic"
