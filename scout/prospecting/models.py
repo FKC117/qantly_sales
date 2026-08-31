@@ -6,7 +6,7 @@ from django.db.models import Q
 
 class Company(models.Model):
     name = models.CharField(max_length=255)
-    domain = models.CharField(max_length=255, unique=True, blank=True)
+    domain = models.CharField(max_length=255, unique=True, null=True, blank=True)
     website = models.URLField(blank=True)
     industry = models.CharField(max_length=150, blank=True)
     country = models.CharField(max_length=100, blank=True)
@@ -38,6 +38,11 @@ class JobPosting(models.Model):
     posted_at = models.DateTimeField(null=True, blank=True)
     discovered_at = models.DateTimeField(auto_now_add=True)
     raw_content = models.TextField(blank=True)
+    requirements = models.JSONField(default=list, blank=True)
+    analytics_signals = models.JSONField(default=list, blank=True)
+    seniority = models.CharField(max_length=100, blank=True)
+    department = models.CharField(max_length=150, blank=True)
+    parsed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
 
     class Meta:

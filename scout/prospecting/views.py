@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Company, Contact, JobPosting, Outreach, Prospect, ProspectActivity
@@ -64,6 +64,11 @@ class OutreachViewSet(viewsets.ModelViewSet):
     queryset = Outreach.objects.select_related("prospect__company", "contact", "approved_by").all()
     serializer_class = OutreachSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in {"approve", "reject"}:
+            return [IsAdminUser()]
+        return super().get_permissions()
 
     def update(self, request, *args, **kwargs):
         outreach = self.get_object()
