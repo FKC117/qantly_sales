@@ -1,5 +1,35 @@
+# Virtual environment
 venv/
-qantly_sales_prospecting_architecture.md
+.venv/
+
+# Environment / secrets
 .env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Django
+staticfiles/
+
+# Local databases
+*.sqlite3
+db.sqlite3
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Project planning docs - only if you DON'T want them in Git
+qantly_sales_prospecting_architecture.md
 PROSPECTING_BUILD_TASKS.md
-.env.example
