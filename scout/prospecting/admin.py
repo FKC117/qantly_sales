@@ -1,6 +1,46 @@
 from django.contrib import admin
 
-from .models import Company, Contact, JobPosting, Outreach, Prospect, ProspectActivity
+from .models import (
+    Company,
+    Contact,
+    JobPosting,
+    OutreachEmail,
+    Prospect,
+    ProspectEvent,
+    SearchIndustry,
+    SearchLocation,
+    SearchProfile,
+    SearchRole,
+    SearchSignal,
+)
+
+
+class SearchRoleInline(admin.TabularInline):
+    model = SearchRole
+    extra = 0
+
+
+class SearchSignalInline(admin.TabularInline):
+    model = SearchSignal
+    extra = 0
+
+
+class SearchLocationInline(admin.TabularInline):
+    model = SearchLocation
+    extra = 0
+
+
+class SearchIndustryInline(admin.TabularInline):
+    model = SearchIndustry
+    extra = 0
+
+
+@admin.register(SearchProfile)
+class SearchProfileAdmin(admin.ModelAdmin):
+    list_display = ("name", "is_active", "freshness_days", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("name", "description")
+    inlines = (SearchRoleInline, SearchSignalInline, SearchLocationInline, SearchIndustryInline)
 
 
 @admin.register(Company)
@@ -34,16 +74,16 @@ class ContactAdmin(admin.ModelAdmin):
     autocomplete_fields = ("company",)
 
 
-@admin.register(Outreach)
-class OutreachAdmin(admin.ModelAdmin):
+@admin.register(OutreachEmail)
+class OutreachEmailAdmin(admin.ModelAdmin):
     list_display = ("subject", "prospect", "contact", "status", "reply_status", "approved_at", "sent_at")
     search_fields = ("subject", "prospect__company__name", "contact__name")
     list_filter = ("status", "reply_status")
     autocomplete_fields = ("prospect", "contact", "approved_by")
 
 
-@admin.register(ProspectActivity)
-class ProspectActivityAdmin(admin.ModelAdmin):
+@admin.register(ProspectEvent)
+class ProspectEventAdmin(admin.ModelAdmin):
     list_display = ("prospect", "event_type", "created_at")
     search_fields = ("prospect__company__name",)
     list_filter = ("event_type",)

@@ -4,14 +4,31 @@ from rest_framework.decorators import action, api_view
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Company, Contact, JobPosting, Outreach, Prospect, ProspectActivity
+from .models import (
+    Company,
+    Contact,
+    JobPosting,
+    OutreachEmail,
+    Prospect,
+    ProspectEvent,
+    SearchIndustry,
+    SearchLocation,
+    SearchProfile,
+    SearchRole,
+    SearchSignal,
+)
 from .serializers import (
     CompanySerializer,
     ContactSerializer,
     JobPostingSerializer,
-    OutreachSerializer,
-    ProspectActivitySerializer,
+    OutreachEmailSerializer,
+    ProspectEventSerializer,
     ProspectSerializer,
+    SearchIndustrySerializer,
+    SearchLocationSerializer,
+    SearchProfileSerializer,
+    SearchRoleSerializer,
+    SearchSignalSerializer,
 )
 from .services import approve_outreach, log_activity, reject_outreach, submit_outreach_for_approval
 
@@ -28,6 +45,50 @@ class CompanyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
+class SearchProfileViewSet(viewsets.ModelViewSet):
+    queryset = SearchProfile.objects.all()
+    serializer_class = SearchProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def activate(self, request, pk=None):
+        profile = self.get_object()
+        profile.is_active = True
+        profile.save(update_fields=["is_active", "updated_at"])
+        return Response(self.get_serializer(profile).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def deactivate(self, request, pk=None):
+        profile = self.get_object()
+        profile.is_active = False
+        profile.save(update_fields=["is_active", "updated_at"])
+        return Response(self.get_serializer(profile).data)
+
+
+class SearchRoleViewSet(viewsets.ModelViewSet):
+    queryset = SearchRole.objects.select_related("search_profile").all()
+    serializer_class = SearchRoleSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class SearchSignalViewSet(viewsets.ModelViewSet):
+    queryset = SearchSignal.objects.select_related("search_profile").all()
+    serializer_class = SearchSignalSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class SearchLocationViewSet(viewsets.ModelViewSet):
+    queryset = SearchLocation.objects.select_related("search_profile").all()
+    serializer_class = SearchLocationSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class SearchIndustryViewSet(viewsets.ModelViewSet):
+    queryset = SearchIndustry.objects.select_related("search_profile").all()
+    serializer_class = SearchIndustrySerializer
+    permission_classes = [IsAuthenticated]
+
+
 class JobPostingViewSet(viewsets.ModelViewSet):
     queryset = JobPosting.objects.select_related("company").all()
     serializer_class = JobPostingSerializer
@@ -41,7 +102,7 @@ class ProspectViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         prospect = serializer.save()
-        log_activity(prospect, ProspectActivity.EventType.DISCOVERED)
+        log_activity(prospect, ProspectEvent.EventType.DISCOVERED)
 
     def perform_update(self, serializer):
         previous_status = self.get_object().status
@@ -49,7 +110,7 @@ class ProspectViewSet(viewsets.ModelViewSet):
         if prospect.status != previous_status:
             log_activity(
                 prospect,
-                ProspectActivity.EventType.STATUS_CHANGED,
+                ProspectEvent.EventType.STATUS_CHANGED,
                 {"from": previous_status, "to": prospect.status},
             )
 
@@ -60,9 +121,9 @@ class ContactViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
-class OutreachViewSet(viewsets.ModelViewSet):
-    queryset = Outreach.objects.select_related("prospect__company", "contact", "approved_by").all()
-    serializer_class = OutreachSerializer
+class OutreachEmailViewSet(viewsets.ModelViewSet):
+    queryset = OutreachEmail.objects.select_related("prospect__company", "contact", "approved_by").all()
+    serializer_class = OutreachEmailSerializer
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
@@ -72,7 +133,7 @@ class OutreachViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         outreach = self.get_object()
-        if outreach.status == Outreach.Status.SENT:
+        if outreach.status == OutreachEmail.Status.SENT:
             return Response({"detail": "Sent outreach cannot be edited."}, status=status.HTTP_400_BAD_REQUEST)
         return super().update(request, *args, **kwargs)
 
@@ -96,7 +157,7 @@ class OutreachViewSet(viewsets.ModelViewSet):
         return self._transition(request, lambda outreach: reject_outreach(outreach, request.user))
 
 
-class ProspectActivityViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ProspectActivity.objects.select_related("prospect__company").all()
-    serializer_class = ProspectActivitySerializer
+class ProspectEventViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = ProspectEvent.objects.select_related("prospect__company").all()
+    serializer_class = ProspectEventSerializer
     permission_classes = [IsAuthenticated]

@@ -1,61 +1,44 @@
-import re
 from difflib import SequenceMatcher
 
 from bs4 import BeautifulSoup
 from django.utils import timezone
 
-from ..models import Company, JobPosting
-from .queries import ANALYTICS_KEYWORDS
+from ..models import Company, JobPosting, SearchProfile
 from .schemas import DiscoveredJob, ParsedJobDetails
 
 
-SKILL_PATTERNS = ("SPSS", "SAS", "R", "Python", "SQL", "Stata", "Tableau", "Power BI")
-METHOD_PATTERNS = (
-    "survival analysis",
-    "Kaplan-Meier",
-    "Cox regression",
-    "hypothesis testing",
-    "regression",
-    "clinical trial",
-    "machine learning",
-)
-
-
-def parse_job_details(raw_content: str) -> ParsedJobDetails:
+def parse_job_details(raw_content: str, search_profile: SearchProfile | None = None) -> ParsedJobDetails:
     description = BeautifulSoup(raw_content, "lxml").get_text(" ", strip=True)
     lower_description = description.lower()
+    signals = search_profile.signals.filter(is_active=True) if search_profile else []
+    matched_signal_objects = [signal for signal in signals if signal.value.lower() in lower_description]
+    matched_signals = [signal.value for signal in matched_signal_objects]
     requirements = [
-        skill
-        for skill in SKILL_PATTERNS
-        if (re.search(r"\br\b", lower_description) if skill == "R" else skill.lower() in lower_description)
+        signal.value
+        for signal in matched_signal_objects
+        if signal.category in {"skill", "software", "technology", "qualification"}
     ]
-    analytics_signals = [method for method in METHOD_PATTERNS if method.lower() in lower_description]
-    analytics_signals.extend(
-        keyword for keyword in ANALYTICS_KEYWORDS if keyword.strip() and keyword in lower_description and keyword not in analytics_signals
-    )
 
     seniority = next(
         (label for label in ("Senior", "Lead", "Principal", "Manager", "Director", "Junior") if label.lower() in lower_description),
         "",
     )
-    department = next(
-        (label for label in ("Clinical", "Research", "Biostatistics", "Data Science", "Analytics") if label.lower() in lower_description),
-        "",
-    )
+    department = ""
     return ParsedJobDetails(
         description=description,
         requirements=requirements,
-        analytics_signals=analytics_signals,
+        matched_signals=matched_signals,
         seniority=seniority,
         department=department,
     )
 
 
-def parse_existing_job(job: JobPosting) -> JobPosting:
-    parsed = parse_job_details(job.raw_content or job.description)
+def parse_existing_job(job: JobPosting, search_profile: SearchProfile | None = None) -> JobPosting:
+    search_profile = search_profile or job.search_profile
+    parsed = parse_job_details(job.raw_content or job.description, search_profile)
     job.description = parsed.description
     job.requirements = parsed.requirements
-    job.analytics_signals = parsed.analytics_signals
+    job.matched_signals = parsed.matched_signals
     job.seniority = parsed.seniority
     job.department = parsed.department
     job.parsed_at = timezone.now()
@@ -64,7 +47,7 @@ def parse_existing_job(job: JobPosting) -> JobPosting:
         update_fields=[
             "description",
             "requirements",
-            "analytics_signals",
+            "matched_signals",
             "seniority",
             "department",
             "parsed_at",
@@ -88,7 +71,14 @@ def find_fuzzy_duplicate(company: Company, discovered_job: DiscoveredJob) -> Job
     return None
 
 
-def ingest_discovered_job(discovered_job: DiscoveredJob) -> tuple[JobPosting, bool]:
+def job_matches_profile(discovered_job: DiscoveredJob, search_profile: SearchProfile) -> bool:
+    title = discovered_job.title.lower()
+    return any(role.name.lower() in title for role in search_profile.roles.filter(is_active=True))
+
+
+def ingest_discovered_job(
+    discovered_job: DiscoveredJob, search_profile: SearchProfile | None = None
+) -> tuple[JobPosting, bool]:
     if discovered_job.company_domain:
         company, _ = Company.objects.get_or_create(
             domain=discovered_job.company_domain.lower(),
@@ -109,9 +99,10 @@ def ingest_discovered_job(discovered_job: DiscoveredJob) -> tuple[JobPosting, bo
         if fuzzy_duplicate:
             return fuzzy_duplicate, False
 
-    parsed = parse_job_details(discovered_job.raw_content or discovered_job.description)
+    parsed = parse_job_details(discovered_job.raw_content or discovered_job.description, search_profile)
     fields = {
         "company": company,
+        "search_profile": search_profile,
         "title": discovered_job.title,
         "description": parsed.description,
         "location": discovered_job.location,
@@ -121,7 +112,7 @@ def ingest_discovered_job(discovered_job: DiscoveredJob) -> tuple[JobPosting, bo
         "posted_at": discovered_job.posted_at,
         "raw_content": discovered_job.raw_content or discovered_job.description,
         "requirements": parsed.requirements,
-        "analytics_signals": parsed.analytics_signals,
+        "matched_signals": parsed.matched_signals,
         "seniority": parsed.seniority,
         "department": parsed.department,
         "parsed_at": timezone.now(),

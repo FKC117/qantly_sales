@@ -20,6 +20,6 @@ class DiscoveredJob(BaseModel):
 class ParsedJobDetails(BaseModel):
     description: str
     requirements: list[str] = Field(default_factory=list)
-    analytics_signals: list[str] = Field(default_factory=list)
+    matched_signals: list[str] = Field(default_factory=list)
     seniority: str = ""
     department: str = ""

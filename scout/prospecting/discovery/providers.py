@@ -1,10 +1,10 @@
 import json
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
 
-from .queries import matches_target_role
 from .schemas import DiscoveredJob
 
 
@@ -24,7 +24,7 @@ class GreenhouseBoard:
 
 
 class GreenhouseJobBoardProvider:
-    """Uses Greenhouse's unauthenticated public job-board endpoint."""
+    """Optional ATS adapter for explicitly configured public Greenhouse boards."""
 
     source_name = "greenhouse"
     base_url = "https://boards-api.greenhouse.io/v1/boards"
@@ -40,26 +40,48 @@ class GreenhouseJobBoardProvider:
                 response = client.get(f"{self.base_url}/{board.board_token}/jobs", params={"content": "true"})
                 response.raise_for_status()
                 for job in response.json().get("jobs", []):
-                    description = job.get("content") or ""
-                    title = job.get("title") or ""
-                    if not matches_target_role(title, description):
-                        continue
-                    discovered_jobs.append(
-                        DiscoveredJob(
-                            source=self.source_name,
-                            source_url=job["absolute_url"],
-                            source_job_id=str(job["id"]),
-                            company_name=board.company_name,
-                            company_domain=board.company_domain,
-                            title=title,
-                            description=description,
-                            location=(job.get("location") or {}).get("name") or "",
-                            posted_at=job.get("updated_at"),
-                            raw_content=description,
-                            metadata={"board_token": board.board_token},
-                        )
-                    )
+                    discovered_jobs.append(self.normalize_job(board, job))
         return discovered_jobs
+
+    def normalize_job(self, board: GreenhouseBoard, job: dict) -> DiscoveredJob:
+        description = job.get("content") or ""
+        return DiscoveredJob(
+            source=self.source_name,
+            source_url=job["absolute_url"],
+            source_job_id=str(job["id"]),
+            company_name=board.company_name,
+            company_domain=board.company_domain,
+            title=job.get("title") or "",
+            description=description,
+            location=(job.get("location") or {}).get("name") or "",
+            posted_at=job.get("updated_at"),
+            raw_content=description,
+            metadata={"board_token": board.board_token},
+        )
+
+
+class PublicWebSearchProvider:
+    """Boundary for a future approved public-web search API integration.
+
+    General web discovery deliberately returns no results while no provider is configured;
+    Scout must not fabricate jobs or scrape authenticated/private sources.
+    """
+
+    def __init__(self, provider_name: str | None = None, api_key: str | None = None):
+        self.provider_name = provider_name or os.getenv("SEARCH_PROVIDER", "")
+        self.api_key = api_key or os.getenv("SEARCH_API_KEY", "")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.provider_name and self.api_key)
+
+    def search_jobs(self, query: str) -> list[DiscoveredJob]:
+        if not self.is_configured:
+            return []
+        raise NotImplementedError(
+            f"Search provider '{self.provider_name}' is configured but has no adapter yet. "
+            "Add an approved provider adapter; do not fall back to scraping."
+        )
 
 
 def greenhouse_boards_from_json(value: str) -> list[GreenhouseBoard]:

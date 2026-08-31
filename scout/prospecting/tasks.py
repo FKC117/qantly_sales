@@ -2,34 +2,58 @@ import os
 
 from celery import shared_task
 
-from .discovery.providers import GreenhouseJobBoardProvider, greenhouse_boards_from_json
-from .discovery.services import ingest_discovered_job, parse_existing_job
+from .discovery.providers import (
+    GreenhouseJobBoardProvider,
+    PublicWebSearchProvider,
+    greenhouse_boards_from_json,
+)
+from .discovery.query_builder import build_search_queries
+from .discovery.services import ingest_discovered_job, job_matches_profile, parse_existing_job
 from .email_service import send_approved_outreach
-from .models import JobPosting, Outreach
+from .models import JobPosting, OutreachEmail, SearchProfile
 
 
 @shared_task(bind=True, autoretry_for=(OSError,), retry_backoff=True, max_retries=3)
 def send_approved_outreach_task(self, outreach_id):
     """Background-only SMTP delivery; never call this task for unapproved outreach."""
-    outreach = Outreach.objects.select_related("contact", "prospect__company").get(pk=outreach_id)
+    outreach = OutreachEmail.objects.select_related("contact", "prospect__company").get(pk=outreach_id)
     send_approved_outreach(outreach)
-    return {"outreach_id": outreach_id, "status": Outreach.Status.SENT}
+    return {"outreach_id": outreach_id, "status": OutreachEmail.Status.SENT}
 
 
 @shared_task(autoretry_for=(OSError,), retry_backoff=True, max_retries=3)
-def discover_jobs_task():
-    """Fetch configured public Greenhouse boards and ingest target analytics roles."""
+def discover_jobs_task(search_profile_id=None):
+    """Discover jobs from database search intent and optional ATS adapters."""
+    profiles = SearchProfile.objects.filter(is_active=True)
+    if search_profile_id is not None:
+        profiles = profiles.filter(pk=search_profile_id)
+    public_web_provider = PublicWebSearchProvider()
     boards = greenhouse_boards_from_json(os.getenv("GREENHOUSE_BOARDS_JSON", ""))
-    provider = GreenhouseJobBoardProvider(boards)
+    greenhouse_provider = GreenhouseJobBoardProvider(boards)
     created_count = 0
     updated_count = 0
-    for discovered_job in provider.fetch_jobs():
-        _, created = ingest_discovered_job(discovered_job)
-        if created:
-            created_count += 1
-        else:
-            updated_count += 1
-    return {"created": created_count, "updated": updated_count, "boards": len(boards)}
+    query_count = 0
+    greenhouse_jobs = greenhouse_provider.fetch_jobs() if boards else []
+    for profile in profiles:
+        for query in build_search_queries(profile):
+            query_count += 1
+            for discovered_job in public_web_provider.search_jobs(query):
+                _, created = ingest_discovered_job(discovered_job, profile)
+                created_count += int(created)
+                updated_count += int(not created)
+        for discovered_job in greenhouse_jobs:
+            if not job_matches_profile(discovered_job, profile):
+                continue
+            _, created = ingest_discovered_job(discovered_job, profile)
+            created_count += int(created)
+            updated_count += int(not created)
+    return {
+        "created": created_count,
+        "updated": updated_count,
+        "queries": query_count,
+        "greenhouse_boards": len(boards),
+        "public_web_configured": public_web_provider.is_configured,
+    }
 
 
 @shared_task

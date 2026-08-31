@@ -21,6 +21,92 @@ class Company(models.Model):
         return self.name
 
 
+class SearchProfile(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    freshness_days = models.PositiveSmallIntegerField(default=7)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class SearchRole(models.Model):
+    search_profile = models.ForeignKey(SearchProfile, on_delete=models.CASCADE, related_name="roles")
+    name = models.CharField(max_length=255)
+    weight = models.PositiveSmallIntegerField(default=1)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-weight", "name"]
+        constraints = [models.UniqueConstraint(fields=["search_profile", "name"], name="unique_profile_role")]
+
+    def __str__(self):
+        return f"{self.search_profile}: {self.name}"
+
+
+class SearchSignal(models.Model):
+    class Category(models.TextChoices):
+        SKILL = "skill", "Skill"
+        METHOD = "method", "Method"
+        SOFTWARE = "software", "Software"
+        INDUSTRY = "industry", "Industry"
+        DOMAIN_SIGNAL = "domain_signal", "Domain signal"
+        TECHNOLOGY = "technology", "Technology"
+        QUALIFICATION = "qualification", "Qualification"
+
+    search_profile = models.ForeignKey(SearchProfile, on_delete=models.CASCADE, related_name="signals")
+    value = models.CharField(max_length=255)
+    category = models.CharField(max_length=20, choices=Category)
+    weight = models.PositiveSmallIntegerField(default=1)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-weight", "value"]
+        constraints = [
+            models.UniqueConstraint(fields=["search_profile", "value", "category"], name="unique_profile_signal")
+        ]
+
+    def __str__(self):
+        return f"{self.search_profile}: {self.value}"
+
+
+class SearchLocation(models.Model):
+    search_profile = models.ForeignKey(SearchProfile, on_delete=models.CASCADE, related_name="locations")
+    country = models.CharField(max_length=100)
+    region = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["country", "region"]
+        constraints = [
+            models.UniqueConstraint(fields=["search_profile", "country", "region"], name="unique_profile_location")
+        ]
+
+    def __str__(self):
+        return ", ".join(part for part in (self.region, self.country) if part)
+
+
+class SearchIndustry(models.Model):
+    search_profile = models.ForeignKey(SearchProfile, on_delete=models.CASCADE, related_name="industries")
+    name = models.CharField(max_length=150)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["search_profile", "name"], name="unique_profile_industry")]
+
+    def __str__(self):
+        return f"{self.search_profile}: {self.name}"
+
+
 class JobPosting(models.Model):
     class Status(models.TextChoices):
         NEW = "new", "New"
@@ -29,6 +115,9 @@ class JobPosting(models.Model):
         ARCHIVED = "archived", "Archived"
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="job_postings")
+    search_profile = models.ForeignKey(
+        SearchProfile, on_delete=models.SET_NULL, related_name="job_postings", null=True, blank=True
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     location = models.CharField(max_length=255, blank=True)
@@ -39,7 +128,7 @@ class JobPosting(models.Model):
     discovered_at = models.DateTimeField(auto_now_add=True)
     raw_content = models.TextField(blank=True)
     requirements = models.JSONField(default=list, blank=True)
-    analytics_signals = models.JSONField(default=list, blank=True)
+    matched_signals = models.JSONField(default=list, blank=True)
     seniority = models.CharField(max_length=100, blank=True)
     department = models.CharField(max_length=150, blank=True)
     parsed_at = models.DateTimeField(null=True, blank=True)
@@ -121,7 +210,7 @@ class Contact(models.Model):
         return f"{self.name} ({self.company.name})"
 
 
-class Outreach(models.Model):
+class OutreachEmail(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
@@ -137,7 +226,7 @@ class Outreach(models.Model):
         POSITIVE = "positive", "Positive reply"
         NEGATIVE = "negative", "Negative reply"
 
-    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="outreach")
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="outreach_emails")
     contact = models.ForeignKey(
         Contact, on_delete=models.SET_NULL, related_name="outreach", null=True, blank=True
     )
@@ -166,7 +255,7 @@ class Outreach(models.Model):
         return f"{self.prospect.company.name}: {self.subject}"
 
 
-class ProspectActivity(models.Model):
+class ProspectEvent(models.Model):
     class EventType(models.TextChoices):
         DISCOVERED = "discovered", "Discovered"
         QUALIFIED = "qualified", "Qualified"
@@ -178,7 +267,7 @@ class ProspectActivity(models.Model):
         REPLY_RECEIVED = "reply_received", "Reply received"
         NOTE = "note", "Note"
 
-    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="activities")
+    prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="events")
     event_type = models.CharField(max_length=30, choices=EventType)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

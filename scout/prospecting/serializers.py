@@ -1,6 +1,53 @@
 from rest_framework import serializers
 
-from .models import Company, Contact, JobPosting, Outreach, Prospect, ProspectActivity
+from .models import (
+    Company,
+    Contact,
+    JobPosting,
+    OutreachEmail,
+    Prospect,
+    ProspectEvent,
+    SearchIndustry,
+    SearchLocation,
+    SearchProfile,
+    SearchRole,
+    SearchSignal,
+)
+
+
+class SearchProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SearchProfile
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
+class SearchRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SearchRole
+        fields = "__all__"
+        read_only_fields = ("id", "created_at")
+
+
+class SearchSignalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SearchSignal
+        fields = "__all__"
+        read_only_fields = ("id", "created_at")
+
+
+class SearchLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SearchLocation
+        fields = "__all__"
+        read_only_fields = ("id",)
+
+
+class SearchIndustrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SearchIndustry
+        fields = "__all__"
+        read_only_fields = ("id",)
 
 
 class CompanySerializer(serializers.ModelSerializer):
@@ -38,9 +85,9 @@ class ContactSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
-class OutreachSerializer(serializers.ModelSerializer):
+class OutreachEmailSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Outreach
+        model = OutreachEmail
         fields = "__all__"
         read_only_fields = (
             "id",
@@ -61,8 +108,8 @@ class OutreachSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class ProspectActivitySerializer(serializers.ModelSerializer):
+class ProspectEventSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ProspectActivity
+        model = ProspectEvent
         fields = "__all__"
         read_only_fields = fields
