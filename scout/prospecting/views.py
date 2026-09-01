@@ -5,8 +5,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
+from django_celery_results.models import TaskResult
 from rest_framework import status, viewsets
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
@@ -77,6 +78,22 @@ def session_user(request):
 def health_check(request):
     """Confirm that the prospecting API is installed and reachable."""
     return Response({"app": "prospecting", "status": "ok"})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def discovery_status(request, task_id):
+    """Expose the result of a user-triggered discovery task to the dashboard."""
+    task = TaskResult.objects.filter(task_id=task_id).first()
+    if task is None:
+        return Response({"task_id": task_id, "status": "PENDING", "result": None})
+    result = task.result
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            pass
+    return Response({"task_id": task_id, "status": task.status, "result": result})
 
 
 class CompanyViewSet(viewsets.ModelViewSet):

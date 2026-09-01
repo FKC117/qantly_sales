@@ -174,6 +174,56 @@ class TheMuseSearchProvider:
         return posted_at >= datetime.now(UTC) - timedelta(days=freshness_days)
 
 
+class JoobleUaeSearchProvider:
+    """Live UAE Jooble REST API adapter, enabled only when its UAE key is set."""
+
+    source_name = "jooble"
+    base_url = "https://ae.jooble.org/api"
+
+    def __init__(self, api_key: str | None = None, timeout: float = 20.0):
+        self.api_key = api_key or os.getenv("JOOBLE_UAE_API_KEY", "")
+        self.timeout = timeout
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+    def search_jobs(self, query: str) -> list[DiscoveredJob]:
+        if not self.is_configured:
+            return []
+        roles = re.findall(r'role:"([^"]+)"', query)
+        signals = re.findall(r'signal:"([^"]+)"', query)
+        locations = re.findall(r'location:"([^"]+)"', query)
+        payload = {
+            "keywords": " ".join([*roles, *signals]).strip(),
+            "location": locations[0] if locations else "United Arab Emirates",
+            "page": 1,
+        }
+        with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
+            response = client.post(f"{self.base_url}/{self.api_key}", json=payload)
+            response.raise_for_status()
+        return [normalized for job in response.json().get("jobs", []) if (normalized := self.normalize_job(job))]
+
+    def normalize_job(self, job: dict) -> DiscoveredJob | None:
+        source_url = job.get("link") or job.get("url") or ""
+        title = job.get("title") or ""
+        if not source_url or not title:
+            return None
+        description = job.get("snippet") or job.get("description") or ""
+        return DiscoveredJob(
+            source=self.source_name,
+            source_url=source_url,
+            source_job_id=str(job.get("id") or source_url),
+            company_name=job.get("company") or "Unknown company",
+            title=title,
+            description=description,
+            location=job.get("location") or "",
+            posted_at=job.get("updated") or job.get("created"),
+            raw_content=description,
+            metadata={"source": "Jooble UAE"},
+        )
+
+
 def greenhouse_boards_from_json(value: str) -> list[GreenhouseBoard]:
     """Parse GREENHOUSE_BOARDS_JSON, keeping board configuration out of source code."""
     if not value.strip():

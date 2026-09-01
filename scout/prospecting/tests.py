@@ -25,6 +25,7 @@ from .services import approve_outreach
 from .discovery.providers import (
     GreenhouseBoard,
     GreenhouseJobBoardProvider,
+    JoobleUaeSearchProvider,
     PublicWebSearchProvider,
     TheMuseSearchProvider,
     greenhouse_boards_from_json,
@@ -333,7 +334,7 @@ class DiscoveryProviderTests(TestCase):
         self.assertEqual(provider.search_jobs('"Data Analyst" jobs'), [])
 
     def test_discovery_task_runs_when_greenhouse_is_not_configured(self):
-        with patch.dict("os.environ", {"SEARCH_PROVIDER": "", "SEARCH_API_KEY": ""}):
+        with patch.dict("os.environ", {"SEARCH_PROVIDER": "", "SEARCH_API_KEY": "", "JOOBLE_UAE_API_KEY": ""}):
             result = discover_jobs_task.run()
 
         self.assertEqual(result["greenhouse_boards"], 0)
@@ -385,3 +386,23 @@ class DiscoveryProviderTests(TestCase):
         self.assertTrue(
             provider._matches_query(job, ["clinical data analyst", "sas"], ["remote"], freshness_days=None)
         )
+
+    def test_jooble_provider_normalizes_a_public_job(self):
+        provider = JoobleUaeSearchProvider(api_key="test-key")
+
+        job = provider.normalize_job(
+            {
+                "id": "jooble-101",
+                "title": "Data Analyst",
+                "company": "Example UAE",
+                "location": "Dubai",
+                "snippet": "SQL and Power BI reporting.",
+                "link": "https://example.org/jobs/data-analyst",
+                "updated": "2026-08-31T00:00:00Z",
+            }
+        )
+
+        self.assertTrue(provider.is_configured)
+        self.assertEqual(job.source, "jooble")
+        self.assertEqual(job.source_job_id, "jooble-101")
+        self.assertEqual(job.company_name, "Example UAE")

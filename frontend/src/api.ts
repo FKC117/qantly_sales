@@ -4,6 +4,7 @@ export type SearchProfile = { id: number; name: string; description: string; is_
 export type SearchLocation = { id: number; search_profile: number; country: string; region: string; is_active: boolean }
 export type SearchRole = { id: number; search_profile: number; name: string; weight: number; is_active: boolean }
 export type SearchSignal = { id: number; search_profile: number; value: string; category: string; weight: number; is_active: boolean }
+export type DiscoveryStatus = { task_id: string; status: string; result: { created?: number; updated?: number; queries?: number; provider_matches?: Record<string, number>; provider_errors?: Record<string, string> } | string | null }
 
 const csrf = () => document.cookie.split('; ').find((part) => part.startsWith('csrftoken='))?.split('=')[1] ?? ''
 async function request<T>(path: string, init: RequestInit = {}) {
@@ -26,4 +27,5 @@ export const api = {
   deleteRole: (id: number) => mutate<void>(`/api/prospecting/search-roles/${id}/`, 'DELETE'),
   deleteSignal: (id: number) => mutate<void>(`/api/prospecting/search-signals/${id}/`, 'DELETE'),
   runDiscovery: (profileId: number) => mutate<{ task_id: string; profile: string }>(`/api/prospecting/search-profiles/${profileId}/run-discovery/`, 'POST'),
+  discoveryStatus: (taskId: string) => request<DiscoveryStatus>(`/api/prospecting/discovery-status/${taskId}/`),
 }

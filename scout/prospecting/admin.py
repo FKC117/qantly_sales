@@ -1,4 +1,6 @@
 from django.contrib import admin
+from import_export import fields, resources
+from import_export.admin import ExportMixin
 
 from .models import (
     Company,
@@ -35,6 +37,62 @@ class SearchIndustryInline(admin.TabularInline):
     extra = 0
 
 
+class JobPostingResource(resources.ModelResource):
+    company_name = fields.Field(column_name="company_name")
+    search_profile_name = fields.Field(column_name="search_profile")
+
+    class Meta:
+        model = JobPosting
+        fields = (
+            "id",
+            "title",
+            "company_name",
+            "company__domain",
+            "company__website",
+            "company__industry",
+            "company__country",
+            "search_profile_name",
+            "location",
+            "source",
+            "source_url",
+            "source_job_id",
+            "posted_at",
+            "discovered_at",
+            "matched_signals",
+            "requirements",
+            "seniority",
+            "department",
+            "status",
+        )
+        export_order = (
+            "id",
+            "title",
+            "company_name",
+            "company__domain",
+            "company__website",
+            "company__industry",
+            "company__country",
+            "search_profile_name",
+            "location",
+            "source",
+            "source_url",
+            "source_job_id",
+            "posted_at",
+            "discovered_at",
+            "matched_signals",
+            "requirements",
+            "seniority",
+            "department",
+            "status",
+        )
+
+    def dehydrate_company_name(self, job):
+        return job.company.name
+
+    def dehydrate_search_profile_name(self, job):
+        return job.search_profile.name if job.search_profile else ""
+
+
 @admin.register(SearchProfile)
 class SearchProfileAdmin(admin.ModelAdmin):
     list_display = ("name", "is_active", "freshness_days", "updated_at")
@@ -51,7 +109,8 @@ class CompanyAdmin(admin.ModelAdmin):
 
 
 @admin.register(JobPosting)
-class JobPostingAdmin(admin.ModelAdmin):
+class JobPostingAdmin(ExportMixin, admin.ModelAdmin):
+    resource_classes = (JobPostingResource,)
     list_display = ("title", "company", "source", "location", "status", "posted_at", "discovered_at")
     search_fields = ("title", "company__name", "source", "location")
     list_filter = ("status", "source")

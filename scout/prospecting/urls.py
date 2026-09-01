@@ -20,6 +20,7 @@ router.register("events", views.ProspectEventViewSet, basename="event")
 
 urlpatterns = [
     path("health/", views.health_check, name="health"),
+    path("discovery-status/<uuid:task_id>/", views.discovery_status, name="discovery-status"),
     path("auth/csrf/", views.csrf, name="csrf"),
     path("auth/login/", views.session_login, name="login"),
     path("auth/logout/", views.session_logout, name="logout"),

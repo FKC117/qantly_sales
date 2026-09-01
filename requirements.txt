@@ -7,6 +7,7 @@
 Django>=6.1,<7.0
 djangorestframework>=3.16,<3.17
 django-cors-headers>=4.7,<5.0
+django-import-export>=4.4,<5.0
 
 # PostgreSQL
 psycopg[binary]>=3.2,<4.0
