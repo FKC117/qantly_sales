@@ -18,6 +18,7 @@ from .models import (
     OutreachEmail,
     Prospect,
     ProspectEvent,
+    QantlyCapability,
     SearchIndustry,
     SearchLocation,
     SearchProfile,
@@ -30,6 +31,7 @@ from .serializers import (
     JobPostingSerializer,
     OutreachEmailSerializer,
     ProspectEventSerializer,
+    QantlyCapabilitySerializer,
     ProspectSerializer,
     SearchIndustrySerializer,
     SearchLocationSerializer,
@@ -160,6 +162,12 @@ class SearchLocationViewSet(viewsets.ModelViewSet):
 class SearchIndustryViewSet(viewsets.ModelViewSet):
     queryset = SearchIndustry.objects.select_related("search_profile").all()
     serializer_class = SearchIndustrySerializer
+    permission_classes = [IsAuthenticated]
+
+
+class QantlyCapabilityViewSet(viewsets.ModelViewSet):
+    queryset = QantlyCapability.objects.select_related("search_profile").all()
+    serializer_class = QantlyCapabilitySerializer
     permission_classes = [IsAuthenticated]
 
 

@@ -9,6 +9,7 @@ from .models import (
     OutreachEmail,
     Prospect,
     ProspectEvent,
+    QantlyCapability,
     SearchIndustry,
     SearchLocation,
     SearchProfile,
@@ -37,6 +38,11 @@ class SearchIndustryInline(admin.TabularInline):
     extra = 0
 
 
+class QantlyCapabilityInline(admin.TabularInline):
+    model = QantlyCapability
+    extra = 0
+
+
 class JobPostingResource(resources.ModelResource):
     company_name = fields.Field(column_name="company_name")
     search_profile_name = fields.Field(column_name="search_profile")
@@ -56,12 +62,18 @@ class JobPostingResource(resources.ModelResource):
             "source",
             "source_url",
             "source_job_id",
+            "description",
+            "raw_content",
             "posted_at",
             "discovered_at",
             "matched_signals",
             "requirements",
             "seniority",
             "department",
+            "relevance_score",
+            "relevance_label",
+            "relevance_reason",
+            "capability_matches",
             "status",
         )
         export_order = (
@@ -77,12 +89,18 @@ class JobPostingResource(resources.ModelResource):
             "source",
             "source_url",
             "source_job_id",
+            "description",
+            "raw_content",
             "posted_at",
             "discovered_at",
             "matched_signals",
             "requirements",
             "seniority",
             "department",
+            "relevance_score",
+            "relevance_label",
+            "relevance_reason",
+            "capability_matches",
             "status",
         )
 
@@ -98,7 +116,7 @@ class SearchProfileAdmin(admin.ModelAdmin):
     list_display = ("name", "is_active", "freshness_days", "updated_at")
     list_filter = ("is_active",)
     search_fields = ("name", "description")
-    inlines = (SearchRoleInline, SearchSignalInline, SearchLocationInline, SearchIndustryInline)
+    inlines = (SearchRoleInline, SearchSignalInline, SearchLocationInline, SearchIndustryInline, QantlyCapabilityInline)
 
 
 @admin.register(Company)
@@ -111,9 +129,9 @@ class CompanyAdmin(admin.ModelAdmin):
 @admin.register(JobPosting)
 class JobPostingAdmin(ExportMixin, admin.ModelAdmin):
     resource_classes = (JobPostingResource,)
-    list_display = ("title", "company", "source", "location", "status", "posted_at", "discovered_at")
+    list_display = ("title", "company", "relevance_score", "relevance_label", "source", "location", "status", "posted_at", "discovered_at")
     search_fields = ("title", "company__name", "source", "location")
-    list_filter = ("status", "source")
+    list_filter = ("status", "relevance_label", "source")
     autocomplete_fields = ("company",)
 
 

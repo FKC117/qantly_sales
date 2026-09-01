@@ -15,6 +15,7 @@ from .models import (
     OutreachEmail,
     Prospect,
     ProspectEvent,
+    QantlyCapability,
     SearchIndustry,
     SearchLocation,
     SearchProfile,
@@ -32,7 +33,13 @@ from .discovery.providers import (
 )
 from .discovery.query_builder import build_search_queries
 from .discovery.schemas import DiscoveredJob
-from .discovery.services import ingest_discovered_job, parse_job_details
+from .discovery.services import (
+    ingest_discovered_job,
+    parse_job_details,
+    relevance_label_for_score,
+    score_job_relevance,
+    term_matches,
+)
 from .discovery.source_detection import detect_job_source
 from .tasks import discover_jobs_task
 
@@ -223,7 +230,9 @@ class JobDiscoveryTests(TestCase):
 
     def test_parser_extracts_clean_text_and_profile_matched_signals(self):
         parsed = parse_job_details(
-            "<p>Senior Clinical Data Analyst with SAS, Python, and Kaplan-Meier experience.</p>", self.profile
+            "<p>Senior Clinical Data Analyst with SAS, Python, and Kaplan-Meier experience.</p>",
+            self.profile,
+            title="Senior Clinical Data Analyst",
         )
 
         self.assertEqual(parsed.description, "Senior Clinical Data Analyst with SAS, Python, and Kaplan-Meier experience.")
@@ -278,6 +287,104 @@ class JobDiscoveryTests(TestCase):
         self.assertFalse(created)
         self.assertEqual(duplicate.id, original_job.id)
         self.assertEqual(JobPosting.objects.count(), 1)
+
+
+class RelevanceQualificationTests(TestCase):
+    def setUp(self):
+        self.profile = SearchProfile.objects.create(name="Qantly Qualification", prospect_threshold=70)
+        SearchRole.objects.create(search_profile=self.profile, name="Biostatistician")
+        SearchRole.objects.create(search_profile=self.profile, name="Data Scientist")
+        SearchRole.objects.create(search_profile=self.profile, name="Data Analyst")
+        for value, category in (("SAS", "software"), ("R", "software"), ("Python", "software"), ("SQL", "software"), ("Kaplan-Meier", "method")):
+            SearchSignal.objects.create(search_profile=self.profile, value=value, category=category)
+        SearchIndustry.objects.create(search_profile=self.profile, name="Healthcare")
+
+    def _job(self, title, content, source="test"):
+        return DiscoveredJob(
+            source=source, source_url=f"https://example.org/{title.replace(' ', '-').lower()}",
+            source_job_id=title, company_name="Example", title=title, raw_content=content,
+        )
+
+    def test_short_signals_are_token_aware(self):
+        self.assertTrue(term_matches("Experience with R and Python", "R"))
+        self.assertFalse(term_matches("Hardware reliability engineering", "R"))
+        self.assertTrue(term_matches("SAS programming", "SAS"))
+        self.assertFalse(term_matches("Sassy analytics", "SAS"))
+
+    def test_seniority_only_comes_from_job_title(self):
+        parsed = parse_job_details("Demonstrates leadership and manages stakeholders.", self.profile, title="Data Analyst")
+        self.assertEqual(parsed.seniority, "")
+        self.assertEqual(parse_job_details("", self.profile, title="Lead Data Scientist").seniority, "Lead")
+
+    def test_relevance_score_boundaries_have_stable_labels(self):
+        self.assertEqual(relevance_label_for_score(44), JobPosting.RelevanceLabel.WEAK)
+        self.assertEqual(relevance_label_for_score(45), JobPosting.RelevanceLabel.REVIEW)
+        self.assertEqual(relevance_label_for_score(69), JobPosting.RelevanceLabel.REVIEW)
+        self.assertEqual(relevance_label_for_score(70), JobPosting.RelevanceLabel.STRONG)
+
+    def test_strong_healthcare_statistical_job_is_promoted(self):
+        discovered = self._job(
+            "Senior Biostatistician",
+            "Healthcare clinical trial research using SAS, R, and Kaplan-Meier survival analysis.",
+        )
+        assessment = score_job_relevance(discovered, self.profile)
+        job, _ = ingest_discovered_job(discovered, self.profile)
+
+        self.assertGreaterEqual(assessment.score, 70)
+        self.assertEqual(assessment.label, JobPosting.RelevanceLabel.STRONG)
+        self.assertEqual(job.relevance_label, JobPosting.RelevanceLabel.STRONG)
+        self.assertTrue(Prospect.objects.filter(job_posting=job).exists())
+
+    def test_database_capability_mapping_is_stored_on_the_job(self):
+        QantlyCapability.objects.create(
+            search_profile=self.profile,
+            name="Survival analysis",
+            category=QantlyCapability.Category.SURVIVAL_ANALYSIS,
+            keywords=["Kaplan-Meier", "survival analysis"],
+            weight=10,
+        )
+        job, _ = ingest_discovered_job(
+            self._job("Biostatistician", "Clinical research using Kaplan-Meier survival analysis."), self.profile
+        )
+
+        self.assertEqual(job.capability_matches[0]["name"], "Survival analysis")
+        self.assertEqual(job.capability_matches[0]["evidence"], "Kaplan-Meier")
+
+    def test_borderline_analytics_job_is_review_and_not_promoted(self):
+        discovered = self._job("Data Analyst", "Statistical analysis using Python and SQL for commercial operations.")
+        job, _ = ingest_discovered_job(discovered, self.profile)
+
+        self.assertGreaterEqual(job.relevance_score, 45)
+        self.assertLess(job.relevance_score, 70)
+        self.assertEqual(job.relevance_label, JobPosting.RelevanceLabel.REVIEW)
+        self.assertFalse(Prospect.objects.filter(job_posting=job).exists())
+
+    def test_spacex_hardware_reliability_regression_is_weak_and_stored(self):
+        discovered = self._job(
+            "Data Scientist, Hardware Reliability (Starlink)",
+            "Build data engineering pipelines for hardware reliability. Python and SQL required. Demonstrates leadership.",
+        )
+        job, created = ingest_discovered_job(discovered, self.profile)
+
+        self.assertTrue(created)
+        self.assertIn("Python", job.matched_signals)
+        self.assertIn("SQL", job.matched_signals)
+        self.assertNotIn("R", job.matched_signals)
+        self.assertNotIn("SAS", job.matched_signals)
+        self.assertEqual(job.seniority, "")
+        self.assertLess(job.relevance_score, self.profile.prospect_threshold)
+        self.assertEqual(job.relevance_label, JobPosting.RelevanceLabel.WEAK)
+        self.assertFalse(Prospect.objects.filter(job_posting=job).exists())
+        self.assertIn("data engineering emphasis", job.relevance_reason)
+
+    def test_weak_jooble_job_remains_discoverable(self):
+        discovered = self._job("Backend Software Engineer", "Build microservices and APIs.", source="jooble")
+        job, created = ingest_discovered_job(discovered, self.profile)
+
+        self.assertTrue(created)
+        self.assertEqual(job.source, "jooble")
+        self.assertEqual(job.relevance_label, JobPosting.RelevanceLabel.WEAK)
+        self.assertFalse(Prospect.objects.filter(job_posting=job).exists())
 
 
 class SearchProfileTests(TestCase):

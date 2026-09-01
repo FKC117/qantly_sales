@@ -26,6 +26,11 @@ class SearchProfile(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     freshness_days = models.PositiveSmallIntegerField(default=7)
+    prospect_threshold = models.PositiveSmallIntegerField(
+        default=70,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Minimum relevance score required for automatic Prospect creation.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -107,12 +112,47 @@ class SearchIndustry(models.Model):
         return f"{self.search_profile}: {self.name}"
 
 
+class QantlyCapability(models.Model):
+    class Category(models.TextChoices):
+        DESCRIPTIVE_STATISTICS = "descriptive_statistics", "Descriptive statistics"
+        HYPOTHESIS_TESTING = "hypothesis_testing", "Hypothesis testing"
+        REGRESSION = "regression", "Regression"
+        SURVIVAL_ANALYSIS = "survival_analysis", "Survival analysis"
+        MULTIVARIATE_ANALYSIS = "multivariate_analysis", "Multivariate analysis"
+        MACHINE_LEARNING = "machine_learning", "Machine learning"
+        STUDY_DESIGN = "study_design", "Study design"
+        POWER_ANALYSIS = "power_analysis", "Power analysis"
+        DATA_CLEANING = "data_cleaning", "Data cleaning"
+        VISUALIZATION = "visualization", "Visualization"
+        REPORTING = "reporting", "Reporting"
+        INTERPRETATION = "interpretation", "Interpretation"
+
+    search_profile = models.ForeignKey(SearchProfile, on_delete=models.CASCADE, related_name="capabilities")
+    name = models.CharField(max_length=150)
+    category = models.CharField(max_length=30, choices=Category.choices)
+    keywords = models.JSONField(default=list, blank=True)
+    weight = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1), MaxValueValidator(20)])
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["category", "name"]
+        constraints = [models.UniqueConstraint(fields=["search_profile", "name"], name="unique_profile_capability")]
+
+    def __str__(self):
+        return f"{self.search_profile}: {self.name}"
+
+
 class JobPosting(models.Model):
     class Status(models.TextChoices):
         NEW = "new", "New"
         PARSED = "parsed", "Parsed"
         INVALID = "invalid", "Invalid"
         ARCHIVED = "archived", "Archived"
+
+    class RelevanceLabel(models.TextChoices):
+        STRONG = "strong", "Strong"
+        REVIEW = "review", "Review"
+        WEAK = "weak", "Weak"
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="job_postings")
     search_profile = models.ForeignKey(
@@ -131,6 +171,13 @@ class JobPosting(models.Model):
     matched_signals = models.JSONField(default=list, blank=True)
     seniority = models.CharField(max_length=100, blank=True)
     department = models.CharField(max_length=150, blank=True)
+    relevance_score = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    relevance_label = models.CharField(max_length=10, choices=RelevanceLabel, default=RelevanceLabel.WEAK)
+    relevance_reason = models.TextField(blank=True)
+    capability_matches = models.JSONField(default=list, blank=True)
     parsed_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
 

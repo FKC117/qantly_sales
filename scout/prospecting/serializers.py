@@ -7,6 +7,7 @@ from .models import (
     OutreachEmail,
     Prospect,
     ProspectEvent,
+    QantlyCapability,
     SearchIndustry,
     SearchLocation,
     SearchProfile,
@@ -46,6 +47,13 @@ class SearchLocationSerializer(serializers.ModelSerializer):
 class SearchIndustrySerializer(serializers.ModelSerializer):
     class Meta:
         model = SearchIndustry
+        fields = "__all__"
+        read_only_fields = ("id",)
+
+
+class QantlyCapabilitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QantlyCapability
         fields = "__all__"
         read_only_fields = ("id",)
 
