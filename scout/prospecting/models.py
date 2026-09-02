@@ -232,6 +232,80 @@ class Prospect(models.Model):
         return f"{self.company.name} ({self.fit_score})"
 
 
+class ProspectResearch(models.Model):
+    class CTA(models.TextChoices):
+        TRY_QANTLY = "try_qantly", "Try Qantly"
+        TECHNICAL_FEEDBACK = "technical_feedback", "Technical feedback"
+        DEMO = "demo", "Demo"
+        PILOT = "pilot", "Pilot"
+        CUSTOM_DEPLOYMENT = "custom_deployment", "Custom deployment"
+        PARTNERSHIP_DISCUSSION = "partnership_discussion", "Partnership discussion"
+        REFERRAL_PARTNERSHIP = "referral_partnership", "Referral partnership"
+        RESEARCH_PILOT = "research_pilot", "Research pilot"
+
+    prospect = models.OneToOneField(Prospect, on_delete=models.CASCADE, related_name="research")
+    demand_evidence = models.TextField(blank=True)
+    qantly_current_match = models.JSONField(default=list, blank=True)
+    customization_gap = models.JSONField(default=list, blank=True)
+    internal_build_capability = models.CharField(max_length=255, blank=True)
+    existing_stack = models.JSONField(default=list, blank=True)
+    data_sensitivity = models.CharField(max_length=255, blank=True)
+    deployment_barrier = models.CharField(max_length=255, blank=True)
+    procurement_difficulty = models.CharField(max_length=255, blank=True)
+    buyer_user = models.JSONField(default=list, blank=True)
+    recommended_entry_person = models.CharField(max_length=255, blank=True)
+    recommended_entry_strategy = models.TextField(blank=True)
+    recommended_first_cta = models.CharField(max_length=30, choices=CTA.choices, blank=True)
+    research_summary = models.TextField(blank=True)
+    source_urls = models.JSONField(default=list, blank=True)
+    research_confidence = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    researched_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Research: {self.prospect}"
+
+
+class ProspectAssessment(models.Model):
+    class AccountType(models.TextChoices):
+        DIRECT_ENTERPRISE = "direct_enterprise", "Direct enterprise"
+        INSTITUTIONAL = "institutional", "Institutional"
+        CHANNEL_PARTNER = "channel_partner", "Channel partner"
+        TECHNOLOGY_PARTNER = "technology_partner", "Technology partner"
+        RECRUITER = "recruiter", "Recruiter"
+        JOB_AGGREGATOR = "job_aggregator", "Job aggregator"
+        CONSULTING = "consulting", "Consulting"
+        UNKNOWN = "unknown", "Unknown"
+
+    class Classification(models.TextChoices):
+        A = "A", "A — Contact now"
+        B = "B", "B — Strategic entry"
+        C = "C", "C — Partnership/channel"
+        D = "D", "D — Research/watch"
+        E = "E", "E — Do not pursue"
+
+    prospect = models.OneToOneField(Prospect, on_delete=models.CASCADE, related_name="assessment")
+    technical_fit = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    customization_opportunity = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    ease_of_entry = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    near_term_conversion = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    strategic_value = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    account_type = models.CharField(max_length=25, choices=AccountType.choices, default=AccountType.UNKNOWN)
+    classification = models.CharField(max_length=1, choices=Classification.choices, default=Classification.D)
+    overall_reason = models.TextField(blank=True)
+    score_reasons = models.JSONField(default=dict, blank=True)
+    recommended_cta = models.CharField(max_length=30, choices=ProspectResearch.CTA.choices, blank=True)
+    assessed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Assessment: {self.prospect}"
+
+
 class Contact(models.Model):
     class VerificationStatus(models.TextChoices):
         UNVERIFIED = "unverified", "Unverified"
@@ -312,6 +386,11 @@ class ProspectEvent(models.Model):
         OUTREACH_REJECTED = "outreach_rejected", "Outreach rejected"
         OUTREACH_SENT = "outreach_sent", "Outreach sent"
         REPLY_RECEIVED = "reply_received", "Reply received"
+        RESEARCH_COMPLETED = "research_completed", "Research completed"
+        RESEARCH_FAILED = "research_failed", "Research failed"
+        ASSESSMENT_COMPLETED = "assessment_completed", "Assessment completed"
+        ASSESSMENT_FAILED = "assessment_failed", "Assessment failed"
+        OUTREACH_GENERATED = "outreach_generated", "Outreach generated"
         NOTE = "note", "Note"
 
     prospect = models.ForeignKey(Prospect, on_delete=models.CASCADE, related_name="events")

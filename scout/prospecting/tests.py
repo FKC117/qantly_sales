@@ -14,7 +14,9 @@ from .models import (
     JobPosting,
     OutreachEmail,
     Prospect,
+    ProspectAssessment,
     ProspectEvent,
+    ProspectResearch,
     QantlyCapability,
     SearchIndustry,
     SearchLocation,
@@ -41,6 +43,10 @@ from .discovery.services import (
     term_matches,
 )
 from .discovery.source_detection import detect_job_source
+from .research.schemas import ProspectResearchResult, ResearchEvidence
+from .research.assessment import assess_prospect
+from .outreach.strategy import build_outreach_strategy
+from .research.services import compare_qantly_capabilities, research_prospect
 from .tasks import discover_jobs_task
 
 
@@ -78,6 +84,163 @@ class ProspectingModelTests(TestCase):
 
         with self.assertRaises(ValidationError):
             prospect.full_clean()
+
+
+class Phase2ModelTests(TestCase):
+    def setUp(self):
+        company = Company.objects.create(name="Research Institute")
+        job = JobPosting.objects.create(
+            company=company,
+            title="Clinical Data Analyst",
+            source="test",
+            source_url="https://example.org/jobs/clinical-data-analyst",
+        )
+        self.prospect = Prospect.objects.create(company=company, job_posting=job)
+
+    def test_research_stores_evidence_and_confidence(self):
+        research = ProspectResearch.objects.create(
+            prospect=self.prospect,
+            source_urls=[{"url": "https://example.org/jobs/clinical-data-analyst", "source_type": "job"}],
+            research_confidence=80,
+            qantly_current_match=["Regression"],
+            customization_gap=["FHIR integration"],
+        )
+
+        self.assertEqual(research.prospect, self.prospect)
+        self.assertEqual(research.source_urls[0]["source_type"], "job")
+
+    def test_assessment_validates_scores_and_controlled_choices(self):
+        assessment = ProspectAssessment.objects.create(
+            prospect=self.prospect,
+            technical_fit=75,
+            customization_opportunity=60,
+            ease_of_entry=55,
+            near_term_conversion=50,
+            strategic_value=70,
+            account_type=ProspectAssessment.AccountType.INSTITUTIONAL,
+            classification=ProspectAssessment.Classification.B,
+        )
+
+        assessment.technical_fit = 101
+        with self.assertRaises(ValidationError):
+            assessment.full_clean()
+        assessment.technical_fit = 75
+        assessment.account_type = "unsupported"
+        with self.assertRaises(ValidationError):
+            assessment.full_clean()
+
+
+class ProspectResearchServiceTests(TestCase):
+    def setUp(self):
+        company = Company.objects.create(name="Evidence Labs", website="https://example.org")
+        job = JobPosting.objects.create(
+            company=company,
+            title="Clinical Data Analyst",
+            source="jooble",
+            source_url="https://example.org/jobs/clinical-data-analyst",
+        )
+        self.prospect = Prospect.objects.create(company=company, job_posting=job)
+
+    def test_research_uses_stored_public_urls_and_logs_event(self):
+        research = research_prospect(self.prospect)
+
+        self.assertEqual(research.research_confidence, 70)
+        self.assertEqual({item["source_type"] for item in research.source_urls}, {"job", "company_website"})
+        self.assertTrue(
+            ProspectEvent.objects.filter(prospect=self.prospect, event_type=ProspectEvent.EventType.RESEARCH_COMPLETED).exists()
+        )
+
+    def test_fresh_research_is_cached_unless_forced(self):
+        class CountingProvider:
+            calls = 0
+
+            def research_company(self, prospect):
+                self.calls += 1
+                return ProspectResearchResult(
+                    source_urls=[ResearchEvidence(url=prospect.job_posting.source_url, title="Evidence", source_type="job")],
+                    research_confidence=60,
+                )
+
+        provider = CountingProvider()
+        first = research_prospect(self.prospect, provider=provider)
+        cached = research_prospect(self.prospect, provider=provider)
+        refreshed = research_prospect(self.prospect, provider=provider, force=True)
+
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(first.id, cached.id)
+        self.assertEqual(first.id, refreshed.id)
+
+    def test_only_active_database_capabilities_are_claimed_as_current_match(self):
+        profile = SearchProfile.objects.create(name="Capability comparison")
+        QantlyCapability.objects.create(
+            search_profile=profile,
+            name="Survival analysis",
+            category=QantlyCapability.Category.SURVIVAL_ANALYSIS,
+            keywords=["survival analysis"],
+        )
+        QantlyCapability.objects.create(
+            search_profile=profile,
+            name="FHIR integration",
+            category=QantlyCapability.Category.MACHINE_LEARNING,
+            keywords=["FHIR"],
+            is_active=False,
+        )
+        self.prospect.job_posting.search_profile = profile
+        self.prospect.job_posting.requirements = ["survival analysis", "FHIR"]
+        self.prospect.job_posting.description = "Need survival analysis and FHIR integration."
+        self.prospect.job_posting.save(update_fields=["search_profile", "requirements", "description"])
+
+        comparison = compare_qantly_capabilities(self.prospect)
+        research = research_prospect(self.prospect, force=True)
+
+        self.assertEqual([item["name"] for item in comparison.current_match], ["Survival analysis"])
+        self.assertEqual(comparison.customization_gap, ["FHIR"])
+        self.assertEqual([item["name"] for item in research.qantly_current_match], ["Survival analysis"])
+
+    def test_assessment_stores_five_scores_and_classifies_high_fit_account(self):
+        self.prospect.company.name = "Regional Hospital"
+        self.prospect.company.save(update_fields=["name"])
+        profile = SearchProfile.objects.create(name="Assessment capabilities")
+        for name, keyword, category in [
+            ("Regression", "regression", QantlyCapability.Category.REGRESSION),
+            ("Survival", "survival analysis", QantlyCapability.Category.SURVIVAL_ANALYSIS),
+            ("Study design", "clinical trial", QantlyCapability.Category.STUDY_DESIGN),
+        ]:
+            QantlyCapability.objects.create(search_profile=profile, name=name, category=category, keywords=[keyword])
+        job = self.prospect.job_posting
+        job.search_profile = profile
+        job.description = "Clinical trial survival analysis and regression work."
+        job.requirements = ["regression", "survival analysis", "clinical trial"]
+        job.relevance_score = 80
+        job.relevance_label = "strong"
+        job.save(update_fields=["search_profile", "description", "requirements", "relevance_score", "relevance_label"])
+
+        assessment = assess_prospect(self.prospect, force_research=True)
+
+        self.assertEqual(assessment.account_type, ProspectAssessment.AccountType.INSTITUTIONAL)
+        self.assertEqual(assessment.classification, ProspectAssessment.Classification.A)
+        self.assertGreaterEqual(assessment.technical_fit, 70)
+        self.assertEqual(set(assessment.score_reasons), {"technical_fit", "customization_opportunity", "ease_of_entry", "near_term_conversion", "strategic_value"})
+
+    def test_recruiter_is_classified_as_partnership_channel(self):
+        self.prospect.company.name = "Talent Recruiters UAE"
+        self.prospect.company.save(update_fields=["name"])
+
+        assessment = assess_prospect(self.prospect, force_research=True)
+
+        self.assertEqual(assessment.account_type, ProspectAssessment.AccountType.RECRUITER)
+        self.assertEqual(assessment.classification, ProspectAssessment.Classification.C)
+        self.assertEqual(assessment.recommended_cta, "referral_partnership")
+
+    def test_strategy_uses_account_type_not_generic_sales_motion(self):
+        self.prospect.company.name = "Analytics Advisory Consulting"
+        self.prospect.company.save(update_fields=["name"])
+        assess_prospect(self.prospect, force_research=True)
+
+        strategy = build_outreach_strategy(self.prospect)
+
+        self.assertEqual(strategy.entry_person, "Partnerships or Practice Lead")
+        self.assertEqual(strategy.cta, "partnership_discussion")
 
 
 class ProspectingApiTests(TestCase):
