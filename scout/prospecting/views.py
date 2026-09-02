@@ -43,6 +43,7 @@ from .services import approve_outreach, log_activity, reject_outreach, submit_ou
 from .research.assessment import assess_prospect
 from .research.services import research_prospect
 from .outreach.generator import generate_outreach_email
+from .metrics import calculate_funnel_metrics
 
 
 @require_GET
@@ -83,6 +84,12 @@ def session_user(request):
 def health_check(request):
     """Confirm that the prospecting API is installed and reachable."""
     return Response({"app": "prospecting", "status": "ok"})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def funnel_metrics(request):
+    return Response(calculate_funnel_metrics())
 
 
 @api_view(["GET"])

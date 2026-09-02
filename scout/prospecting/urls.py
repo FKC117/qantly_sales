@@ -21,6 +21,7 @@ router.register("events", views.ProspectEventViewSet, basename="event")
 
 urlpatterns = [
     path("health/", views.health_check, name="health"),
+    path("metrics/", views.funnel_metrics, name="metrics"),
     path("discovery-status/<uuid:task_id>/", views.discovery_status, name="discovery-status"),
     path("auth/csrf/", views.csrf, name="csrf"),
     path("auth/login/", views.session_login, name="login"),

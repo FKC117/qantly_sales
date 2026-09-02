@@ -12,6 +12,7 @@ from .discovery.query_builder import build_search_queries
 from .discovery.services import ingest_discovered_job, job_matches_profile, parse_existing_job
 from .email_service import send_approved_outreach
 from .models import JobPosting, OutreachEmail, SearchProfile
+from .metrics import calculate_funnel_metrics
 
 
 @shared_task(bind=True, autoretry_for=(OSError,), retry_backoff=True, max_retries=3)
@@ -80,3 +81,9 @@ def parse_new_jobs_task():
     for job in jobs.iterator():
         parse_existing_job(job)
     return {"parsed": job_count}
+
+
+@shared_task
+def calculate_metrics_task():
+    """Calculate the current funnel without changing prospect or email state."""
+    return calculate_funnel_metrics()

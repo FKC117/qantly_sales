@@ -51,6 +51,7 @@ from .outreach.strategy import build_outreach_strategy
 from .outreach.generator import generate_outreach_email
 from .research.services import compare_qantly_capabilities, research_prospect
 from .tasks import discover_jobs_task
+from .metrics import calculate_funnel_metrics
 
 
 class HealthCheckTests(TestCase):
@@ -447,6 +448,23 @@ class OutreachDeliveryTests(TestCase):
         self.assertEqual(outreach.status, OutreachEmail.Status.SENT)
         self.assertEqual(outreach.reply_status, OutreachEmail.ReplyStatus.PENDING)
         self.assertEqual(len(mail.outbox), 1)
+
+
+class FunnelMetricsTests(TestCase):
+    def test_metrics_report_delivery_and_reply_rates_without_division_errors(self):
+        company = Company.objects.create(name="Metrics Research")
+        job = JobPosting.objects.create(company=company, title="Analyst", source="test", source_url="https://example.org/metrics")
+        prospect = Prospect.objects.create(company=company, job_posting=job, status=Prospect.Status.QUALIFIED)
+        OutreachEmail.objects.create(
+            prospect=prospect, subject="Demo", body="Hello", status=OutreachEmail.Status.SENT,
+            reply_status=OutreachEmail.ReplyStatus.POSITIVE,
+        )
+
+        metrics = calculate_funnel_metrics()
+
+        self.assertEqual(metrics["qualified_prospect_rate"], 100.0)
+        self.assertEqual(metrics["email_delivery_rate"], 100.0)
+        self.assertEqual(metrics["positive_reply_rate"], 100.0)
 
 
 class JobDiscoveryTests(TestCase):
