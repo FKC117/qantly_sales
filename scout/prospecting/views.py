@@ -40,6 +40,9 @@ from .serializers import (
     SearchSignalSerializer,
 )
 from .services import approve_outreach, log_activity, reject_outreach, submit_outreach_for_approval
+from .research.assessment import assess_prospect
+from .research.services import research_prospect
+from .outreach.generator import generate_outreach_email
 
 
 @require_GET
@@ -178,7 +181,7 @@ class JobPostingViewSet(viewsets.ModelViewSet):
 
 
 class ProspectViewSet(viewsets.ModelViewSet):
-    queryset = Prospect.objects.select_related("company", "job_posting").all()
+    queryset = Prospect.objects.select_related("company", "job_posting", "research", "assessment").all()
     serializer_class = ProspectSerializer
     permission_classes = [IsAuthenticated]
 
@@ -196,6 +199,29 @@ class ProspectViewSet(viewsets.ModelViewSet):
                 {"from": previous_status, "to": prospect.status},
             )
 
+    @action(detail=True, methods=["post"])
+    def research(self, request, pk=None):
+        research = research_prospect(self.get_object(), force=bool(request.data.get("force", False)))
+        return Response({"research": research.id})
+
+    @action(detail=True, methods=["post"])
+    def assess(self, request, pk=None):
+        assessment = assess_prospect(self.get_object(), force_research=bool(request.data.get("force", False)))
+        return Response({"assessment": assessment.id, "classification": assessment.classification})
+
+    @action(detail=True, methods=["post"], url_path="qualify")
+    def qualify(self, request, pk=None):
+        assessment = assess_prospect(self.get_object(), force_research=bool(request.data.get("force", False)))
+        return Response({"assessment": assessment.id, "classification": assessment.classification})
+
+    @action(detail=True, methods=["post"], url_path="generate-outreach")
+    def generate_outreach(self, request, pk=None):
+        prospect = self.get_object()
+        if not hasattr(prospect, "assessment"):
+            return Response({"detail": "Assess the prospect before generating outreach."}, status=status.HTTP_400_BAD_REQUEST)
+        outreach = generate_outreach_email(prospect)
+        return Response(OutreachEmailSerializer(outreach).data, status=status.HTTP_201_CREATED)
+
 
 class ContactViewSet(viewsets.ModelViewSet):
     queryset = Contact.objects.select_related("company").all()
@@ -209,7 +235,7 @@ class OutreachEmailViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in {"approve", "reject"}:
+        if self.action in {"approve", "reject", "queue_send"}:
             return [IsAdminUser()]
         return super().get_permissions()
 
@@ -237,6 +263,17 @@ class OutreachEmailViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         return self._transition(request, lambda outreach: reject_outreach(outreach, request.user))
+
+    @action(detail=True, methods=["post"], url_path="queue-send")
+    def queue_send(self, request, pk=None):
+        """Queue SMTP delivery for an approved email; the worker enforces approval again."""
+        outreach = self.get_object()
+        if outreach.status != OutreachEmail.Status.APPROVED:
+            return Response({"detail": "Only approved outreach can be queued for sending."}, status=status.HTTP_400_BAD_REQUEST)
+        from .tasks import send_approved_outreach_task
+
+        task = send_approved_outreach_task.delay(outreach.id)
+        return Response({"outreach": outreach.id, "task_id": str(task.id)}, status=status.HTTP_202_ACCEPTED)
 
 
 class ProspectEventViewSet(viewsets.ReadOnlyModelViewSet):

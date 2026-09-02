@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core import mail
+from io import StringIO
+from django.core.management import call_command
 from django.db import IntegrityError
 from django.test import TestCase
 from django.test import override_settings
@@ -46,6 +48,7 @@ from .discovery.source_detection import detect_job_source
 from .research.schemas import ProspectResearchResult, ResearchEvidence
 from .research.assessment import assess_prospect
 from .outreach.strategy import build_outreach_strategy
+from .outreach.generator import generate_outreach_email
 from .research.services import compare_qantly_capabilities, research_prospect
 from .tasks import discover_jobs_task
 
@@ -242,6 +245,44 @@ class ProspectResearchServiceTests(TestCase):
         self.assertEqual(strategy.entry_person, "Partnerships or Practice Lead")
         self.assertEqual(strategy.cta, "partnership_discussion")
 
+    def test_generated_email_is_a_draft_and_separates_current_and_custom_work(self):
+        profile = SearchProfile.objects.create(name="Email capabilities")
+        QantlyCapability.objects.create(
+            search_profile=profile,
+            name="Survival analysis",
+            category=QantlyCapability.Category.SURVIVAL_ANALYSIS,
+            keywords=["survival analysis"],
+        )
+        job = self.prospect.job_posting
+        job.search_profile = profile
+        job.requirements = ["survival analysis", "FHIR"]
+        job.description = "Survival analysis and FHIR integration work."
+        job.save(update_fields=["search_profile", "requirements", "description"])
+        assess_prospect(self.prospect, force_research=True)
+
+        email = generate_outreach_email(self.prospect)
+
+        self.assertEqual(email.status, OutreachEmail.Status.DRAFT)
+        self.assertIn("Survival analysis", email.body)
+        self.assertIn("tailored approach", email.body)
+
+
+class QualificationCommandTests(TestCase):
+    def test_command_is_bounded_and_never_creates_outreach(self):
+        company = Company.objects.create(name="Batch Evidence")
+        first_job = JobPosting.objects.create(company=company, title="Analyst", source="test", source_url="https://example.org/one")
+        second_job = JobPosting.objects.create(company=company, title="Scientist", source="test", source_url="https://example.org/two")
+        first = Prospect.objects.create(company=company, job_posting=first_job, fit_score=80)
+        second = Prospect.objects.create(company=company, job_posting=second_job, fit_score=20)
+
+        output = StringIO()
+        call_command("qualify_prospects", limit=1, stdout=output)
+
+        self.assertTrue(ProspectAssessment.objects.filter(prospect=first).exists())
+        self.assertFalse(ProspectAssessment.objects.filter(prospect=second).exists())
+        self.assertEqual(OutreachEmail.objects.count(), 0)
+        self.assertIn("no emails sent", output.getvalue())
+
 
 class ProspectingApiTests(TestCase):
     def setUp(self):
@@ -328,6 +369,37 @@ class ProspectingApiTests(TestCase):
         response = self.client.post(reverse("prospecting:outreach-approve", args=[outreach.id]))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_qualification_actions_research_assess_and_create_draft(self):
+        prospect = Prospect.objects.create(company=self.company, job_posting=self.job, fit_score=82)
+
+        self.assertEqual(self.client.post(reverse("prospecting:prospect-research", args=[prospect.id]), {}, content_type="application/json").status_code, 200)
+        self.assertEqual(self.client.post(reverse("prospecting:prospect-assess", args=[prospect.id]), {}, content_type="application/json").status_code, 200)
+        response = self.client.post(reverse("prospecting:prospect-generate-outreach", args=[prospect.id]), {}, content_type="application/json")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], OutreachEmail.Status.DRAFT)
+
+    @patch("prospecting.tasks.send_approved_outreach_task.delay")
+    def test_staff_can_queue_only_approved_outreach_for_delivery(self, delay):
+        prospect = Prospect.objects.create(company=self.company, job_posting=self.job, fit_score=82)
+        outreach = OutreachEmail.objects.create(
+            prospect=prospect, subject="A Qantly demo", body="Hello", status=OutreachEmail.Status.APPROVED
+        )
+        delay.return_value.id = "00000000-0000-0000-0000-000000000001"
+
+        response = self.client.post(reverse("prospecting:outreach-queue-send", args=[outreach.id]))
+
+        self.assertEqual(response.status_code, 202)
+        delay.assert_called_once_with(outreach.id)
+
+    def test_unapproved_outreach_cannot_be_queued_for_delivery(self):
+        prospect = Prospect.objects.create(company=self.company, job_posting=self.job, fit_score=82)
+        outreach = OutreachEmail.objects.create(prospect=prospect, subject="A Qantly demo", body="Hello")
+
+        response = self.client.post(reverse("prospecting:outreach-queue-send", args=[outreach.id]))
+
+        self.assertEqual(response.status_code, 400)
 
 
 class OutreachDeliveryTests(TestCase):

@@ -6,7 +6,9 @@ from .models import (
     JobPosting,
     OutreachEmail,
     Prospect,
+    ProspectAssessment,
     ProspectEvent,
+    ProspectResearch,
     QantlyCapability,
     SearchIndustry,
     SearchLocation,
@@ -73,6 +75,9 @@ class JobPostingSerializer(serializers.ModelSerializer):
 
 
 class ProspectSerializer(serializers.ModelSerializer):
+    research = serializers.SerializerMethodField()
+    assessment = serializers.SerializerMethodField()
+
     class Meta:
         model = Prospect
         fields = "__all__"
@@ -84,6 +89,28 @@ class ProspectSerializer(serializers.ModelSerializer):
         if company and job_posting and job_posting.company_id != company.id:
             raise serializers.ValidationError({"job_posting": "The job posting must belong to this company."})
         return attrs
+
+    def get_research(self, prospect):
+        research = getattr(prospect, "research", None)
+        return ProspectResearchSerializer(research).data if research else None
+
+    def get_assessment(self, prospect):
+        assessment = getattr(prospect, "assessment", None)
+        return ProspectAssessmentSerializer(assessment).data if assessment else None
+
+
+class ProspectResearchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProspectResearch
+        fields = "__all__"
+        read_only_fields = ("id", "prospect", "created_at", "updated_at", "researched_at")
+
+
+class ProspectAssessmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProspectAssessment
+        fields = "__all__"
+        read_only_fields = ("id", "prospect", "created_at", "updated_at", "assessed_at")
 
 
 class ContactSerializer(serializers.ModelSerializer):
